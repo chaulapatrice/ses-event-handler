@@ -15,6 +15,8 @@ import {
     SuppressionReasons
 } from "aws-cdk-lib/aws-ses";
 
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+
 
 import * as iam from 'aws-cdk-lib/aws-iam';
 
@@ -40,17 +42,35 @@ export class SesHandlerStack extends cdk.Stack {
         });
 
         snsTopic.addSubscription(new SqsSubscription(sqsQueue))
+
+        const dynamoDbTableName = 'ses_suppression_list'
+
+        const dynamodbTable = new dynamodb.Table(
+            this, 'SuppressionListTable', {
+                partitionKey: {
+                    name: 'email',
+                    type: dynamodb.AttributeType.STRING
+                },
+                tableName: dynamoDbTableName
+            }
+        );
+
         const consumerFunction = new lambda.Function(this, 'SesBouncesAndComplaintsHandlerLambda', {
             code: lambda.Code.fromAsset(path.join(__dirname, '../functions')),
             runtime: lambda.Runtime.NODEJS_20_X,
-            handler: 'consumer.handler'
+            handler: 'consumer.handler',
+            environment: {
+                DYNAMODB_TABLE_NAME: dynamodbTable.tableName
+            }
         });
 
-        consumerFunction.addToRolePolicy(new iam.PolicyStatement({
-            actions: ['ses:PutSuppressedDestination'],
-            resources: ['*'],
-            effect: iam.Effect.ALLOW
-        }))
+        consumerFunction.addToRolePolicy(new iam.PolicyStatement(
+            {
+                actions: ['dynamodb:PutItem'],
+                resources: ['*'],
+                effect: iam.Effect.ALLOW
+            }
+        ))
 
 
         new EventSourceMapping(this, 'SesBouncesAndComplaintsHandlerEventSourceMapping', {
